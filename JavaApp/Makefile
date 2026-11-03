@@ -147,8 +147,13 @@ $(OUTPUTDIR)/patchsvc.jar: $(CLASSES)
 
 # PatchShaderManager: ASM agent that swallows ShaderManager.apply failures for
 # oit_*/clouds/flat_clouds on MC 26.3+ ANGLE (OIT force-off alone is insufficient).
-$(OUTPUTDIR)/patchshadermgr_agent.jar: $(CLASSES)
+# Agent-only deps so Linux/local make can build this jar without macOS-only launcher sources.
+$(OUTPUTDIR)/patchshadermgr_agent.jar: $(wildcard $(SOURCEDIR)/patchshadermgr_agent/**/*.java) $(SOURCEDIR)/patchshadermgr_agent.txt
 	@set -e
+	@echo "Compiling PatchShaderManager agent"
+	@rm -rf $(basename $@)
+	@mkdir -p $(basename $@)
+	@$(BOOTJDK)/javac -d $(basename $@) $$(find $(SOURCEDIR)/patchshadermgr_agent -name '*.java')
 	@echo "Creating $@"
 	@$(BOOTJDK)/jar -cfm $@ $(SOURCEDIR)/patchshadermgr_agent.txt -C $(basename $@) .
 	@cd $(basename $@) && $(BOOTJDK)/jar -xf $(SOURCEDIR)/../libs/asm/asm-9.7.jar
