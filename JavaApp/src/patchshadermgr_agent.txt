@@ -1,0 +1,2 @@
+Agent-Class: net.kdt.patchshadermgr.PatchShaderManagerAgent
+Premain-Class: net.kdt.patchshadermgr.PatchShaderManagerAgent

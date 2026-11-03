@@ -145,6 +145,18 @@ $(OUTPUTDIR)/patchsvc.jar: $(CLASSES)
 	@echo "Creating $@"
 	@$(BOOTJDK)/jar -cfm $@ $(SOURCEDIR)/patchsvc.txt -C $(basename $@) .
 
+# PatchShaderManager: ASM agent that swallows ShaderManager.apply failures for
+# oit_*/clouds/flat_clouds on MC 26.3+ ANGLE (OIT force-off alone is insufficient).
+$(OUTPUTDIR)/patchshadermgr_agent.jar: $(CLASSES)
+	@set -e
+	@echo "Creating $@"
+	@$(BOOTJDK)/jar -cfm $@ $(SOURCEDIR)/patchshadermgr_agent.txt -C $(basename $@) .
+	@cd $(basename $@) && $(BOOTJDK)/jar -xf $(SOURCEDIR)/../libs/asm/asm-9.7.jar
+	@cd $(basename $@) && $(BOOTJDK)/jar -xf $(SOURCEDIR)/../libs/asm/asm-commons-9.7.jar
+	@cd $(basename $@) && $(BOOTJDK)/jar -xf $(SOURCEDIR)/../libs/asm/asm-tree-9.7.jar
+	@rm -rf $(basename $@)/META-INF
+	@$(BOOTJDK)/jar -uf $@ -C $(basename $@) org
+
 # Task 158（Forge 模块层 mojang 桩）：Forge 的 MC-BOOTSTRAP/GAME 模块层对
 # 系统类加载器完全不可见（securejarhandler ModuleClassLoader 的父链是
 # boot/platform 层），而 launcher.jar 被 -DignoreList 排除在模块层外

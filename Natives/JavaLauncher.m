@@ -2135,6 +2135,24 @@ int launchJVM(NSString *accountId, id launchTarget, int width, int height, int m
         PUSH_MARGV_FORMAT(@"-javaagent:%@/patchsvc.jar=", librariesPath);
     }
 
+    // [PatchShaderManager] MC 26.3+ ANGLE path: swallow ShaderManager.apply failures
+    // when only oit_*/clouds/flat_clouds pipelines failed (OIT force-off alone is
+    // insufficient — ShaderManager still treats them as required).
+    if ([[NSFileManager defaultManager] fileExistsAtPath:
+            [librariesPath stringByAppendingPathComponent:@"patchshadermgr_agent.jar"]]) {
+        NSString *psmMcVersionId = nil;
+        if ([launchTarget isKindOfClass:NSDictionary.class]) {
+            psmMcVersionId = [launchTarget[@"id"] description];
+        } else if ([launchTarget isKindOfClass:NSString.class]) {
+            psmMcVersionId = (NSString *)launchTarget;
+        }
+        NSInteger psmMcMajor = ame98_mcMajorFromVersionId(psmMcVersionId);
+        if (psmMcMajor >= 26) {
+            PUSH_MARGV_FORMAT(@"-javaagent:%@/patchshadermgr_agent.jar=", librariesPath);
+            NSLog(@"[JavaLauncher] PatchShaderManager agent enabled (mcVersion=%@)", psmMcVersionId);
+        }
+    }
+
     // Workaround random stack guard allocation crashes
     PUSH_MARGV_LITERAL("-XX:+UnlockExperimentalVMOptions");
     PUSH_MARGV_LITERAL("-XX:+DisablePrimordialThreadGuardPages");
