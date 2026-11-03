@@ -126,6 +126,10 @@ $(OUTPUTDIR)/lwjgl.jar: $(OUTPUTDIR)/lwjgl-333.jar $(OUTPUTDIR)/lwjgl-341.jar
 $(OUTPUTDIR)/patchjna_agent.jar: $(CLASSES)
 	@set -e
 	@mv $(basename $@)/com/sun/jna/Platform.class $(basename $@)/com/sun/jna/Platform.class.patch
+	@# 26.3 MacosUtil stub：以 .class.patch 资源形式打进 agent，运行时替换 MC 自带类
+	@# （不能放进 launcher.jar，否则 Forge 模块层 split-package ResolutionException）
+	@mv $(basename $@)/com/mojang/blaze3d/platform/MacosUtil.class \
+		$(basename $@)/com/mojang/blaze3d/platform/MacosUtil.class.patch
 	@echo "Creating $@"
 	@$(BOOTJDK)/jar -cfm $@ $(SOURCEDIR)/patchjna_agent.txt -C $(basename $@) .
 
