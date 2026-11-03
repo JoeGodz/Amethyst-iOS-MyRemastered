@@ -2998,58 +2998,49 @@ static void *ame_SDL_GL_GetProcAddress(const char *proc) {
     }
     void *h = ame_rendererHandle();
     if (h != NULL) {
-        // 镜像 LWJGL 3.4.1 的 GL$1（macOS 分支）解析链 —— 修复 26.3 的
-        // "glGetError mismatch"（Air c71dcfa0）。
+        // 镜像 LWJGL 3.4.1 的 GL$1 FunctionProvider 解析链 —— 修复 26.3 的
+        // "glGetError mismatch"（OpenGL 被拒 → MoltenVK → OIT MSL `vertex` 崩）。
         //
         // MC 26.3 的 renderpearl GlBackend.loadLibrary 硬性要求：
         //     addr1 = GL.getFunctionProvider().getFunctionAddress("glGetError")
         //     addr2 = SDLVideo.SDL_GL_GetProcAddress("glGetError")
         //     if (addr1 != addr2) throw "glGetError mismatch"
-        // 不满足就拒绝 OpenGL 后端、回退 MoltenVK（启动遮罩还会卡住）。
+        // 不满足就拒绝 OpenGL 后端、回退 MoltenVK。
         //
-        // LWJGL 的 macOS FunctionProvider 构造是：
-        //     GetProcAddress = dlsym(lib, "eglGetProcAddress")，
-        //                      否则 dlsym(lib, "OSMesaGetProcAddress")；
-        //     查询时        GetProcAddress(name) 非空则取结果，
-        //                      否则 dlsym(lib, name)。
-        // 本钩子此前只做最后那条 dlsym(lib, name)，与 LWJGL 走的是两条不同的
-        // 链 —— 对 MG 这种「自己实现 eglGetProcAddress 分发」的渲染器，
-        // 两条链会给出不同地址，于是 mismatch。
+        // 权威源：lwjgl-lib/3.4.1-lwgjl/.../opengl/GL.java create()：
+        //   switch (Platform) { LINUX/FREEBSD → glX*; WINDOWS → wgl*; }
+        //   // macOS/iOS 无 case，GetProcAddress 仍为 NULL
+        //   if (GetProcAddress == NULL) GetProcAddress = eglGetProcAddress;
+        //   if (GetProcAddress == NULL) GetProcAddress = OSMesaGetProcAddress;
+        //   查询：GPA(name) 非空则取，否则 library.getFunctionAddress(name)=dlsym。
         //
-        // Task 172 修正镜像本身：对 lwjgl-opengl.jar 里 GL$1.class 的 CFR
-        // 反编译实证，macOS 平台分支的构造链是 ——
-        //   switch (Platform.get()) { case LINUX: glXGetProcAddress / ARB;
-        //                              case WINDOWS: wglGetProcAddress; }  // 无 macOS case
-        //   if (GetProcAddress == 0) GetProcAddress = OSMesaGetProcAddress;
-        //   查询：GetProcAddress(name) 非空则取其结果，否则 dlsym(lib, name)。
-        // 即 GL$1 在 macOS 上【从不查询 eglGetProcAddress】。旧镜像的
-        // “eglGetProcAddress 优先”是错误的反推：对 MG/zink 恰好两条链殊途
-        // 同归（要么都不导出 eglGetProcAddress，要么 GPA 与 dlsym 同址），
-        // 装机验证通过纯属侥幸；对 libtinygl4angle（ANGLE 家族，依赖链的
-        // libEGL 导出 eglGetProcAddress，而 glGetError 是依赖链 libGLESv2
-        // 的直接导出）则两条链拿到不同地址 —— 实锤：bridge 已接管
-        //（"hooked SDL_GL_LoadLibrary -> EGL bridge"）但 GlBackend.loadLibrary
-        // 仍报 "glGetError mismatch" → 回落 Vulkan → Iris No GLCapabilities。
-        // 修法 = 镜像链逐字对齐 GL$1 的 macOS 分支（只查 OSMesaGetProcAddress），
-        // 指针一致性对所有渲染器按构造成立。
+        // Task 172 误判「macOS 从不查 eglGetProcAddress」，只镜像 OSMesa ——
+        // 对 libtinygl4angle（ANGLE：导出 eglGetProcAddress，无 OSMesa）时
+        // LWJGL 走 egl GPA 而本钩子走 dlsym，glGetError 两址不同 → mismatch。
+        // 装机证据：mirror provider = 0x0 + "Failed to create backend OpenGL"。
+        // 修法：逐字对齐 3.4.1 GL.java（egl → OSMesa → dlsym）。
         static void *g_mirrorGPA = NULL;
         static bool  g_mirrorGPATried = false;
         if (!g_mirrorGPATried) {
             g_mirrorGPATried = true;
-            // 镜像 GL$1 的 FunctionProvider 解析（macOS 平台分支：仅
-            // OSMesaGetProcAddress —— eglGetProcAddress 从不参与，见上方注释）
-            g_mirrorGPA = dlsym(h, "OSMesaGetProcAddress");
-            // 诊断（release 可见）：provider 取不到 = GL$1 镜像链失效 =
-            // mismatch 会复发（MC 拒绝 GL 后端回退 MoltenVK）。正常应非 NULL。
-            NSLog(@"[SDLHook][diag] GL$1 mirror provider = %p (OSMesaGetProcAddress only; "
-                  @"eglGetProcAddress deliberately NOT consulted per decompiled GL$1 macOS branch, from %s)",
-                  g_mirrorGPA, getenv("AMETHYST_RENDERER") ?: "<unset>");
+            // 对齐 GL.java：先 eglGetProcAddress，再 OSMesaGetProcAddress
+            g_mirrorGPA = dlsym(h, "eglGetProcAddress");
+            const char *gpaName = "eglGetProcAddress";
+            if (g_mirrorGPA == NULL) {
+                g_mirrorGPA = dlsym(h, "OSMesaGetProcAddress");
+                gpaName = "OSMesaGetProcAddress";
+            }
+            // 诊断：ANGLE 路径应非 NULL（egl）；OSMesa-only 渲染器亦非 NULL。
+            // provider=0x0 仅当两者皆缺 —— 随后只靠 dlsym，对 ANGLE 会 mismatch。
+            NSLog(@"[SDLHook][diag] GL$1 mirror provider = %p (%s; egl→OSMesa→dlsym per LWJGL 3.4.1 GL.java, from %s)",
+                  g_mirrorGPA, g_mirrorGPA ? gpaName : "none",
+                  getenv("AMETHYST_RENDERER") ?: "<unset>");
         }
         if (g_mirrorGPA != NULL) {
             void *p = ((void *(*)(const char *))g_mirrorGPA)(proc);
             if (p != NULL) return p;
         }
-        // 对齐 GL$1 的回退：dlsym(lib, name)
+        // 对齐 GL$1 的回退：library.getFunctionAddress(name) = dlsym(lib, name)
         void *p = dlsym(h, proc);
         if (p != NULL) return p;
     }

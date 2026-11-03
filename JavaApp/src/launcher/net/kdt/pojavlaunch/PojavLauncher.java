@@ -142,11 +142,18 @@ public class PojavLauncher {
         MCOptionUtils.setDefault("renderDistance", "2");
         MCOptionUtils.setDefault("simulationDistance", "5");
         // 关闭 OIT（Order-Independent Transparency）—— renderpearl 的
-        // oit_transmittance_flat_clouds Vulkan 管线在 MoltenVK / A11 GPU 上
-        // 编译失败导致崩溃。graphicsMode 0=Fast,1=Fancy,2=Fabulous(OIT)。
-        // 对齐 Ynnyny 仓库 be74cd4。
-        MCOptionUtils.setDefault("graphicsMode", "0");
-        MCOptionUtils.setDefault("transparency", "0");
+        // oit_transmittance_flat_clouds Vulkan 管线在 MoltenVK 上因 MSL
+        // 保留字 `vertex` 编译失败导致崩溃（26.3 crash:
+        // Can't compile pipeline minecraft:pipeline/oit_transmittance_flat_clouds）。
+        // graphicsMode 0=Fast,1=Fancy,2=Fabulous(OIT)；transparency 0=off。
+        // 必须用 set() 强制覆盖，不可 setDefault：用户/MC 默认可能是
+        // transparency=regular（启用 OIT），setDefault 不会改已有值。
+        MCOptionUtils.set("graphicsMode", "0");
+        MCOptionUtils.set("transparency", "0");
+        System.out.println("[PojavLauncher] OIT force-off: graphicsMode="
+            + MCOptionUtils.get("graphicsMode")
+            + " transparency=" + MCOptionUtils.get("transparency")
+            + " (forced via set, not setDefault)");
         
         MCOptionUtils.save();
 
