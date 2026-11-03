@@ -4,7 +4,6 @@ import java.io.*;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
 import java.lang.instrument.Instrumentation;
-import java.lang.reflect.InvocationTargetException;
 import java.security.ProtectionDomain;
 
 public class PatchJNAAgent implements ClassFileTransformer {
@@ -12,17 +11,34 @@ public class PatchJNAAgent implements ClassFileTransformer {
     ProtectionDomain protectionDomain, byte[] classfileBuffer) throws IllegalClassFormatException {
         byte[] transformeredByteCode = classfileBuffer;
         if (className.equals("com/sun/jna/Platform")) {
-            System.out.println("PatchJNAAgent: Replacing class");
-            try {
-                InputStream inputStream = PatchJNAAgent.class.getClassLoader().getResourceAsStream("com/sun/jna/Platform.class.patch");
-                transformeredByteCode = new byte[inputStream.available()];
-                DataInputStream dataInputStream = new DataInputStream(inputStream);
-                dataInputStream.readFully(transformeredByteCode);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            System.out.println("PatchJNAAgent: Replacing com/sun/jna/Platform");
+            transformeredByteCode = loadPatch("com/sun/jna/Platform.class.patch", classfileBuffer);
+        } else if (className.equals("com/mojang/blaze3d/platform/MacosUtil")) {
+            // 26.3: real MacosUtil pulls JNA/objc; unsigned jna*.tmp fails on
+            // unjailbroken iOS. Replace with iOS no-op stub (see MacosUtil.java).
+            System.out.println("PatchJNAAgent: Replacing com/mojang/blaze3d/platform/MacosUtil (iOS stub)");
+            transformeredByteCode = loadPatch(
+                "com/mojang/blaze3d/platform/MacosUtil.class.patch", classfileBuffer);
         }
         return transformeredByteCode;
+    }
+
+    private static byte[] loadPatch(String resourceName, byte[] fallback) {
+        try {
+            InputStream inputStream = PatchJNAAgent.class.getClassLoader().getResourceAsStream(resourceName);
+            if (inputStream == null) {
+                System.err.println("PatchJNAAgent: missing resource " + resourceName);
+                return fallback;
+            }
+            try (DataInputStream dataInputStream = new DataInputStream(inputStream)) {
+                byte[] bytes = new byte[inputStream.available()];
+                dataInputStream.readFully(bytes);
+                return bytes;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return fallback;
+        }
     }
 
     public static void premain(String args, Instrumentation instrumentation) {

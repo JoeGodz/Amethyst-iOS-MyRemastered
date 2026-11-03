@@ -126,6 +126,10 @@ $(OUTPUTDIR)/lwjgl.jar: $(OUTPUTDIR)/lwjgl-333.jar $(OUTPUTDIR)/lwjgl-341.jar
 $(OUTPUTDIR)/patchjna_agent.jar: $(CLASSES)
 	@set -e
 	@mv $(basename $@)/com/sun/jna/Platform.class $(basename $@)/com/sun/jna/Platform.class.patch
+	@# 26.3 MacosUtil stub：以 .class.patch 资源形式打进 agent，运行时替换 MC 自带类
+	@# （不能放进 launcher.jar，否则 Forge 模块层 split-package ResolutionException）
+	@mv $(basename $@)/com/mojang/blaze3d/platform/MacosUtil.class \
+		$(basename $@)/com/mojang/blaze3d/platform/MacosUtil.class.patch
 	@echo "Creating $@"
 	@$(BOOTJDK)/jar -cfm $@ $(SOURCEDIR)/patchjna_agent.txt -C $(basename $@) .
 
@@ -140,6 +144,23 @@ $(OUTPUTDIR)/patchsvc.jar: $(CLASSES)
 	@rm -rf $(basename $@)/de/maxhenkel/*/*.class
 	@echo "Creating $@"
 	@$(BOOTJDK)/jar -cfm $@ $(SOURCEDIR)/patchsvc.txt -C $(basename $@) .
+
+# PatchShaderManager: ASM agent that swallows ShaderManager.apply failures for
+# oit_*/clouds/flat_clouds on MC 26.3+ ANGLE (OIT force-off alone is insufficient).
+# Agent-only deps so Linux/local make can build this jar without macOS-only launcher sources.
+$(OUTPUTDIR)/patchshadermgr_agent.jar: $(wildcard $(SOURCEDIR)/patchshadermgr_agent/**/*.java) $(SOURCEDIR)/patchshadermgr_agent.txt
+	@set -e
+	@echo "Compiling PatchShaderManager agent"
+	@rm -rf $(basename $@)
+	@mkdir -p $(basename $@)
+	@$(BOOTJDK)/javac -d $(basename $@) $$(find $(SOURCEDIR)/patchshadermgr_agent -name '*.java')
+	@echo "Creating $@"
+	@$(BOOTJDK)/jar -cfm $@ $(SOURCEDIR)/patchshadermgr_agent.txt -C $(basename $@) .
+	@cd $(basename $@) && $(BOOTJDK)/jar -xf $(SOURCEDIR)/../libs/asm/asm-9.7.jar
+	@cd $(basename $@) && $(BOOTJDK)/jar -xf $(SOURCEDIR)/../libs/asm/asm-commons-9.7.jar
+	@cd $(basename $@) && $(BOOTJDK)/jar -xf $(SOURCEDIR)/../libs/asm/asm-tree-9.7.jar
+	@rm -rf $(basename $@)/META-INF
+	@$(BOOTJDK)/jar -uf $@ -C $(basename $@) org
 
 # Task 158（Forge 模块层 mojang 桩）：Forge 的 MC-BOOTSTRAP/GAME 模块层对
 # 系统类加载器完全不可见（securejarhandler ModuleClassLoader 的父链是
